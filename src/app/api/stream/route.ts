@@ -13,6 +13,22 @@ interface Tokens {
 
 // Load cookies from file
 function loadCookies(): ytdl.Cookie[] | undefined {
+    // Try valid cookies.json first
+    try {
+        const jsonPath = path.join(process.cwd(), 'cookies.json');
+        if (fs.existsSync(jsonPath)) {
+            const content = fs.readFileSync(jsonPath, 'utf-8');
+            const cookies = JSON.parse(content);
+            if (Array.isArray(cookies) && cookies.length > 0) {
+                console.log(`Loaded ${cookies.length} cookies from JSON`);
+                return cookies;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading cookies.json:', error);
+    }
+
+    // Fallback to cookies.txt (Netscape format)
     try {
         const cookiePath = path.join(process.cwd(), 'cookies.txt');
         if (fs.existsSync(cookiePath)) {
@@ -35,12 +51,12 @@ function loadCookies(): ytdl.Cookie[] | undefined {
                 }
             }
             if (cookies.length > 0) {
-                console.log(`Loaded ${cookies.length} cookies`);
+                console.log(`Loaded ${cookies.length} cookies from TXT`);
                 return cookies;
             }
         }
     } catch (error) {
-        console.error('Error loading cookies:', error);
+        console.error('Error loading cookies.txt:', error);
     }
     return undefined;
 }

@@ -7,7 +7,29 @@ import fs from 'fs';
 
 export const dynamic = 'force-dynamic';
 
+interface Tokens {
+    visitorData: string;
+    poToken: string;
+}
+
+// Load cookies from file
 function loadCookies(): ytdl.Cookie[] | undefined {
+    // Try valid cookies.json first
+    try {
+        const jsonPath = path.join(process.cwd(), 'cookies.json');
+        if (fs.existsSync(jsonPath)) {
+            const content = fs.readFileSync(jsonPath, 'utf-8');
+            const cookies = JSON.parse(content);
+            if (Array.isArray(cookies) && cookies.length > 0) {
+                console.log(`Loaded ${cookies.length} cookies from JSON`);
+                return cookies;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading cookies.json:', error);
+    }
+
+    // Fallback to cookies.txt (Netscape format)
     try {
         const cookiePath = path.join(process.cwd(), 'cookies.txt');
         if (fs.existsSync(cookiePath)) {
@@ -32,13 +54,43 @@ function loadCookies(): ytdl.Cookie[] | undefined {
             if (cookies.length > 0) return cookies;
         }
     } catch (error) {
-        console.error('Error loading cookies:', error);
+        console.error('Error loading cookies.txt:', error);
+    }
+    return undefined;
+}
+
+// Load tokens from file
+function loadTokens(): Tokens | undefined {
+    try {
+        const tokenPath = path.join(process.cwd(), 'tokens.json');
+        if (fs.existsSync(tokenPath)) {
+            const content = fs.readFileSync(tokenPath, 'utf-8');
+            const tokens = JSON.parse(content);
+            if (tokens.visitorData && tokens.poToken) {
+                console.log('Loaded PoToken and VisitorData');
+                return tokens;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading tokens:', error);
     }
     return undefined;
 }
 
 const cookies = loadCookies();
-const agent = cookies ? ytdl.createAgent(cookies) : undefined;
+const tokens = loadTokens();
+
+// Create agent with cookies and tokens if available
+const agentOptions: ytdl.AgentOptions = {
+    keepAlive: true,
+};
+
+if (tokens) {
+    agentOptions.visitorData = tokens.visitorData;
+    agentOptions.poToken = tokens.poToken;
+}
+
+const agent = cookies ? ytdl.createAgent(cookies, agentOptions) : undefined;
 
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
@@ -54,45 +106,55 @@ export async function GET(req: NextRequest) {
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Mimic real browser headers
-    const requestOptions = {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.youtube.com/',
-        }
-    };
+    // List of clients to try (Round-robin strategy)
+    const clientTypes = ['WEB', 'IOS', 'ANDROID'];
 
-    const attempts = agent
-        ? [{ agent, requestOptions }, { requestOptions }]
-        : [{ requestOptions }];
+    let attempts: any[] = [];
+
+    // Prioritize agent attempts (with tokens/cookies)
+    if (agent) {
+        attempts.push({ agent, client: 'WEB' });
+        attempts.push({ agent, client: 'IOS' });
+        attempts.push({ agent, client: 'ANDROID' });
+    } else {
+        // Fallback attempts without agent
+        attempts.push({ client: 'WEB' });
+        attempts.push({ client: 'IOS' });
+        attempts.push({ client: 'ANDROID' });
+    }
 
     let lastError;
 
-    // Strategy 1: Try ytdl-core (Authenticated + Headers)
+    // Strategy 1: Try ytdl-core (Authenticated + Headers + PoToken)
     for (const options of attempts) {
         try {
-            const info = await ytdl.getInfo(videoUrl, options);
+            const requestOptions = {
+                headers: {
+                    'User-Agent': options.client === 'IOS'
+                        ? 'com.google.ios.youtube/19.10.5 (iPhone16,2; U; CPU iOS 17_4_1 like Mac OS X)'
+                        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+            };
+
+            const info = await ytdl.getInfo(videoUrl, { ...options, requestOptions });
             const videoDetails = info.videoDetails;
 
-            console.log(`[InfoAPI] Successfully fetched info for ${videoId} using ytdl-core`);
+            console.log(`[InfoAPI] Successfully fetched info for ${videoId} using ytdl-core (${options.client})`);
 
             return NextResponse.json(formatYtdlResponse(videoDetails));
 
         } catch (error: any) {
-            console.error(`[InfoAPI] ytdl attempt failed:`, error.message);
+            console.error(`[InfoAPI] ytdl attempt failed (${options.client}):`, error.message);
             lastError = error;
         }
     }
 
-    // Strategy 2: Fallback to ytsr (Search scraping) if ytdl fails (often works for public videos when API is blocked)
+    // Strategy 2: Fallback to ytsr (Search scraping) if ytdl fails
     console.log(`[InfoAPI] Falling back to ytsr scraping for ${videoId}`);
     try {
-        // Search specifically for the video ID to simulate a direct lookup
         const filters = await ytsr.getFilters(videoId);
         const filter = filters.get('Type')?.get('Video');
-        const url = filter?.url || videoUrl; // Use specific filter url if available
+        const url = filter?.url || videoUrl;
 
         const searchResults = await ytsr(url, { limit: 1 });
         const item = searchResults.items.find((i): i is ytsr.Video => i.type === 'video' && i.id === videoId);
