@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -11,18 +11,35 @@ import {
     Video,
     LogIn,
     LogOut,
-    X
+    Clock,
+    TrendingUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
+// Popular search suggestions
+const TRENDING_SEARCHES = [
+    "nhạc remix 2026",
+    "lofi chill",
+    "nhạc tiktok",
+    "nhạc không lời",
+    "edm",
+    "v-pop",
+    "k-pop",
+    "nhạc trữ tình",
+];
+
 export function Header() {
     const [searchQuery, setSearchQuery] = useState("");
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [user, setUser] = useState<any>(null);
     const [showUserMenu, setShowUserMenu] = useState(false);
     const router = useRouter();
+    const searchRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -31,11 +48,61 @@ export function Header() {
         return () => unsubscribe();
     }, []);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (searchQuery.trim()) {
-            router.push(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    // Load recent searches from localStorage
+    useEffect(() => {
+        const saved = localStorage.getItem('recentSearches');
+        if (saved) {
+            setRecentSearches(JSON.parse(saved).slice(0, 5));
         }
+    }, []);
+
+    // Close suggestions when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+                setShowSuggestions(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Generate suggestions based on query
+    useEffect(() => {
+        if (searchQuery.trim().length > 0) {
+            const query = searchQuery.toLowerCase();
+            const filtered = TRENDING_SEARCHES.filter(s =>
+                s.toLowerCase().includes(query)
+            );
+            // Add query-based suggestions
+            const querySuggestions = [
+                `${searchQuery} remix`,
+                `${searchQuery} lofi`,
+                `${searchQuery} cover`,
+            ];
+            setSuggestions([...filtered, ...querySuggestions].slice(0, 6));
+        } else {
+            setSuggestions([]);
+        }
+    }, [searchQuery]);
+
+    const handleSearch = (query: string) => {
+        const trimmed = query.trim();
+        if (trimmed) {
+            // Save to recent searches
+            const updated = [trimmed, ...recentSearches.filter(s => s !== trimmed)].slice(0, 5);
+            setRecentSearches(updated);
+            localStorage.setItem('recentSearches', JSON.stringify(updated));
+
+            setShowSuggestions(false);
+            setSearchQuery("");
+            router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+        }
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        handleSearch(searchQuery);
     };
 
     const handleLogout = async () => {
@@ -69,29 +136,92 @@ export function Header() {
                     </Link>
                 </div>
 
-                {/* Center: Search Bar */}
-                <form onSubmit={handleSearch} className="flex-1 max-w-2xl mx-4 hidden md:block">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Tìm kiếm video..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className={cn(
-                                "w-full px-4 py-2.5 pl-12 rounded-full",
-                                "glass-input text-sm placeholder:text-muted-foreground",
-                                "transition-all duration-300"
+                {/* Center: Search Bar with Suggestions */}
+                <div ref={searchRef} className="flex-1 max-w-2xl mx-4 hidden md:block relative">
+                    <form onSubmit={handleSubmit}>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Tìm kiếm video..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => setShowSuggestions(true)}
+                                className={cn(
+                                    "w-full px-4 py-2.5 pl-12 rounded-full",
+                                    "glass-input text-sm placeholder:text-muted-foreground",
+                                    "transition-all duration-300",
+                                    showSuggestions && "rounded-b-none rounded-t-2xl"
+                                )}
+                            />
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <button
+                                type="submit"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-sm transition-colors"
+                            >
+                                Tìm
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Suggestions Dropdown */}
+                    {showSuggestions && (
+                        <div className="absolute top-full left-0 right-0 glass-card rounded-b-2xl border-t-0 overflow-hidden shadow-xl">
+                            {/* Recent Searches */}
+                            {recentSearches.length > 0 && searchQuery.length === 0 && (
+                                <div className="p-2">
+                                    <p className="text-xs text-muted-foreground px-3 py-1 flex items-center gap-2">
+                                        <Clock className="w-3 h-3" /> Tìm kiếm gần đây
+                                    </p>
+                                    {recentSearches.map((item, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => handleSearch(item)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 rounded-lg flex items-center gap-3"
+                                        >
+                                            <Clock className="w-4 h-4 text-muted-foreground" />
+                                            {item}
+                                        </button>
+                                    ))}
+                                </div>
                             )}
-                        />
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <button
-                            type="submit"
-                            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-sm transition-colors"
-                        >
-                            Tìm
-                        </button>
-                    </div>
-                </form>
+
+                            {/* Search Suggestions */}
+                            {suggestions.length > 0 && (
+                                <div className="p-2 border-t border-white/5">
+                                    {suggestions.map((item, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => handleSearch(item)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 rounded-lg flex items-center gap-3"
+                                        >
+                                            <Search className="w-4 h-4 text-muted-foreground" />
+                                            {item}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Trending when empty */}
+                            {searchQuery.length === 0 && recentSearches.length === 0 && (
+                                <div className="p-2">
+                                    <p className="text-xs text-muted-foreground px-3 py-1 flex items-center gap-2">
+                                        <TrendingUp className="w-3 h-3" /> Xu hướng
+                                    </p>
+                                    {TRENDING_SEARCHES.slice(0, 5).map((item, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => handleSearch(item)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-white/10 rounded-lg flex items-center gap-3"
+                                        >
+                                            <TrendingUp className="w-4 h-4 text-orange-400" />
+                                            {item}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 {/* Right: Actions */}
                 <div className="flex items-center gap-2">
@@ -176,7 +306,7 @@ export function Header() {
 
             {/* Mobile Search Bar (visible on small screens) */}
             <div className="md:hidden px-4 pb-3">
-                <form onSubmit={handleSearch}>
+                <form onSubmit={handleSubmit}>
                     <div className="relative">
                         <input
                             type="text"
