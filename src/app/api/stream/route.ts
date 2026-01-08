@@ -1,9 +1,15 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
 import path from 'path';
 import fs from 'fs';
 
 export const dynamic = 'force-dynamic';
+
+interface Tokens {
+    visitorData: string;
+    poToken: string;
+}
 
 // Load cookies from file
 function loadCookies(): ytdl.Cookie[] | undefined {
@@ -39,8 +45,38 @@ function loadCookies(): ytdl.Cookie[] | undefined {
     return undefined;
 }
 
+// Load tokens from file
+function loadTokens(): Tokens | undefined {
+    try {
+        const tokenPath = path.join(process.cwd(), 'tokens.json');
+        if (fs.existsSync(tokenPath)) {
+            const content = fs.readFileSync(tokenPath, 'utf-8');
+            const tokens = JSON.parse(content);
+            if (tokens.visitorData && tokens.poToken) {
+                console.log('Loaded PoToken and VisitorData');
+                return tokens;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading tokens:', error);
+    }
+    return undefined;
+}
+
 const cookies = loadCookies();
-const agent = cookies ? ytdl.createAgent(cookies) : undefined;
+const tokens = loadTokens();
+
+// Create agent with cookies and tokens if available
+const agentOptions: ytdl.AgentOptions = {
+    keepAlive: true,
+};
+
+if (tokens) {
+    agentOptions.visitorData = tokens.visitorData;
+    agentOptions.poToken = tokens.poToken;
+}
+
+const agent = cookies ? ytdl.createAgent(cookies, agentOptions) : undefined;
 
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
@@ -58,32 +94,24 @@ export async function GET(req: NextRequest) {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
     // List of clients to try (Round-robin strategy)
-    // WEB is default (good for quality but blocked easily)
-    // IOS/ANDROID are mobile clients (often bypass restrictions but might have lower quality formats)
     const clientTypes = ['WEB', 'IOS', 'ANDROID'];
-
-    // Create attempt configurations
-    // 1. Try with agent (cookies) + WEB
-    // 2. Try with agent (cookies) + IOS
-    // 3. Try with agent (cookies) + ANDROID
-    // 4. Try without agent + WEB
-    // 5. Try without agent + IOS
 
     let attempts: any[] = [];
 
+    // Prioritize agent attempts (with tokens/cookies)
     if (agent) {
         attempts.push({ agent, client: 'WEB' });
         attempts.push({ agent, client: 'IOS' });
         attempts.push({ agent, client: 'ANDROID' });
     }
 
+    // Fallback attempts without agent (less likely to work for blocked IPs but worth a try)
     attempts.push({ client: 'WEB' });
     attempts.push({ client: 'IOS' });
     attempts.push({ client: 'ANDROID' });
 
     for (const options of attempts) {
         try {
-            // Add request options headers for better mimicry
             const requestOptions = {
                 headers: {
                     'User-Agent': options.client === 'IOS'
@@ -101,7 +129,6 @@ export async function GET(req: NextRequest) {
                     filter: 'audioonly'
                 });
             } else {
-                // Try multiple quality options
                 const qualities = ['18', '22', '136', '135', '134'];
                 for (const q of qualities) {
                     try {
@@ -122,7 +149,7 @@ export async function GET(req: NextRequest) {
             }
 
             if (!format) {
-                continue; // Try next attempt
+                continue;
             }
 
             console.log(`[StreamAPI] Success with client: ${options.client}, hasAgent: ${!!options.agent}`);
@@ -136,7 +163,6 @@ export async function GET(req: NextRequest) {
                 headers.set('Content-Length', format.contentLength);
             }
 
-            // Important: Use the same options for download
             const stream = ytdl.downloadFromInfo(info, { format, ...options });
 
             const readable = new ReadableStream({
@@ -164,10 +190,8 @@ export async function GET(req: NextRequest) {
 
         } catch (error: any) {
             console.error(`Attempt failed (${options.client}):`, error.message);
-            // Continue to next attempt
         }
     }
 
-    // All attempts failed
-    return new NextResponse('Video not available. Try a different video or update cookies.', { status: 503 });
+    return new NextResponse('Video not available. Try a different video or update cookies/tokens.', { status: 503 });
 }
