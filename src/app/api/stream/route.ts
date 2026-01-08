@@ -126,17 +126,25 @@ export async function GET(req: NextRequest) {
     attempts.push({ client: 'IOS' });
     attempts.push({ client: 'ANDROID' });
 
+    // Strategy 1: Try ytdl-core (Authenticated + Headers + PoToken)
     for (const options of attempts) {
         try {
-            const requestOptions = {
-                headers: {
+            console.log(`[StreamAPI] Attempting with client: ${options.client}, hasAgent: ${!!options.agent}`);
+
+            // Only add custom User-Agent for non-WEB clients or when no agent is used
+            const requestOptions: any = {};
+            if (options.client !== 'WEB') {
+                requestOptions.headers = {
                     'User-Agent': options.client === 'IOS'
                         ? 'com.google.ios.youtube/19.10.5 (iPhone16,2; U; CPU iOS 17_4_1 like Mac OS X)'
-                        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                }
-            };
+                        : 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                };
+            }
 
             const info = await ytdl.getInfo(videoUrl, { ...options, requestOptions });
+
+            // Log success to help debug
+            console.log(`[StreamAPI] GetInfo success with ${options.client}`);
 
             let format;
             if (type === 'audio') {
@@ -165,10 +173,11 @@ export async function GET(req: NextRequest) {
             }
 
             if (!format) {
+                console.log(`[StreamAPI] No suitable format found for ${options.client}`);
                 continue;
             }
 
-            console.log(`[StreamAPI] Success with client: ${options.client}, hasAgent: ${!!options.agent}`);
+            console.log(`[StreamAPI] Found format: ${format.qualityLabel || 'audio'} (${format.mimeType})`);
 
             const headers = new Headers();
             headers.set('Content-Type', type === 'audio' ? 'audio/webm' : 'video/mp4');
@@ -190,7 +199,7 @@ export async function GET(req: NextRequest) {
                         controller.close();
                     });
                     stream.on('error', (err: Error) => {
-                        console.error('Stream error:', err.message);
+                        console.error('Stream flow error:', err.message);
                         controller.error(err);
                     });
                 },
@@ -205,7 +214,10 @@ export async function GET(req: NextRequest) {
             });
 
         } catch (error: any) {
-            console.error(`Attempt failed (${options.client}):`, error.message);
+            console.error(`[StreamAPI] Attempt failed (${options.client}):`, error.message);
+            if (error.message.includes('Sign in')) {
+                console.warn(`[StreamAPI] Auth Check Failed for ${options.client}`);
+            }
         }
     }
 
