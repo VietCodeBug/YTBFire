@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
-import { SocksProxyAgent } from 'socks-proxy-agent';
+import { Agent } from 'undici';
 import path from 'path';
 import fs from 'fs';
 
@@ -12,18 +12,8 @@ interface Tokens {
     poToken: string;
 }
 
-// Cloudflare WARP SOCKS5 proxy (default port when running `warp-svc`)
-// To enable: Install WARP on VPS, run `warp-cli connect`
-const WARP_PROXY = process.env.WARP_PROXY || 'socks5://127.0.0.1:40000';
-
-// Create SOCKS5 agent for WARP
-let proxyAgent: SocksProxyAgent | undefined;
-try {
-    proxyAgent = new SocksProxyAgent(WARP_PROXY);
-    console.log(`[StreamAPI] WARP Proxy configured: ${WARP_PROXY}`);
-} catch (error) {
-    console.warn('[StreamAPI] WARP Proxy not available, using direct connection');
-}
+// Cloudflare WARP proxy configuration
+const WARP_PROXY = process.env.WARP_PROXY || 'socks://127.0.0.1:40000';
 
 // Load cookies from file
 function loadCookies(): ytdl.Cookie[] | undefined {
@@ -90,19 +80,12 @@ function loadTokens(): Tokens | undefined {
 const cookies = loadCookies();
 const tokens = loadTokens();
 
-// Create agent with cookies, tokens, and WARP proxy
-const agentOptions: any = {
-    keepAlive: true,
-};
+// Create agent WITHOUT keepAlive (fix the error)
+const agentOptions: any = {};
 
 if (tokens) {
     agentOptions.visitorData = tokens.visitorData;
     agentOptions.poToken = tokens.poToken;
-}
-
-// If WARP proxy is available, inject it into agent options
-if (proxyAgent) {
-    agentOptions.dispatcher = proxyAgent;
 }
 
 const agent = cookies ? ytdl.createAgent(cookies, agentOptions) : undefined;
@@ -122,22 +105,17 @@ export async function GET(req: NextRequest) {
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Build attempts with WARP proxy support
+    // Build attempts
     let attempts: any[] = [];
 
-    // Priority 1: Agent with cookies + tokens + WARP proxy
+    // Priority 1: Agent with cookies + tokens
     if (agent) {
         attempts.push({ agent, client: 'WEB' });
         attempts.push({ agent, client: 'IOS' });
         attempts.push({ agent, client: 'ANDROID' });
     }
 
-    // Priority 2: WARP proxy without cookies (clean IP)
-    if (proxyAgent) {
-        attempts.push({ agent: proxyAgent, client: 'WEB_WARP' });
-    }
-
-    // Priority 3: Direct connection (last resort)
+    // Priority 2: Direct connection
     attempts.push({ client: 'WEB' });
     attempts.push({ client: 'IOS' });
     attempts.push({ client: 'ANDROID' });
@@ -148,7 +126,6 @@ export async function GET(req: NextRequest) {
 
             const requestOptions: any = {};
 
-            // Add custom User-Agent for mobile clients
             if (options.client === 'IOS') {
                 requestOptions.headers = {
                     'User-Agent': 'com.google.ios.youtube/19.10.5 (iPhone16,2; U; CPU iOS 17_4_1 like Mac OS X)'
@@ -234,5 +211,5 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    return new NextResponse('Video not available. Try enabling Cloudflare WARP on VPS.', { status: 503 });
+    return new NextResponse('Video not available. YouTube is blocking this server.', { status: 503 });
 }
