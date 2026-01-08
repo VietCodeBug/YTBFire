@@ -1,7 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
+import path from 'path';
+import fs from 'fs';
 
 export const dynamic = 'force-dynamic';
+
+function loadCookies(): ytdl.Cookie[] | undefined {
+    try {
+        const cookiePath = path.join(process.cwd(), 'cookies.txt');
+        if (fs.existsSync(cookiePath)) {
+            const content = fs.readFileSync(cookiePath, 'utf-8');
+            const cookies: ytdl.Cookie[] = [];
+
+            for (const line of content.split('\n')) {
+                if (line.startsWith('#') || !line.trim()) continue;
+                const parts = line.split('\t');
+                if (parts.length >= 7) {
+                    cookies.push({
+                        domain: parts[0],
+                        name: parts[5],
+                        value: parts[6].trim(),
+                        path: parts[2],
+                        secure: parts[3] === 'TRUE',
+                        httpOnly: false,
+                        expirationDate: parseInt(parts[4]) || undefined,
+                    });
+                }
+            }
+            if (cookies.length > 0) return cookies;
+        }
+    } catch (error) {
+        console.error('Error loading cookies:', error);
+    }
+    return undefined;
+}
+
+const cookies = loadCookies();
+const agent = cookies ? ytdl.createAgent(cookies) : undefined;
 
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
@@ -11,53 +46,54 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Missing videoId parameter' }, { status: 400 });
     }
 
-    // Validate videoId format
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
         return NextResponse.json({ error: 'Invalid videoId format' }, { status: 400 });
     }
 
-    try {
-        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const info = await ytdl.getInfo(videoUrl);
-        const videoDetails = info.videoDetails;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const attempts = agent ? [{ agent }, {}] : [{}];
+    let lastError;
 
-        // Get best thumbnail
-        const thumbnails = videoDetails.thumbnails || [];
-        const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
-            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    for (const options of attempts) {
+        try {
+            const info = await ytdl.getInfo(videoUrl, options);
+            const videoDetails = info.videoDetails;
 
-        // Parse duration
-        const durationSeconds = parseInt(videoDetails.lengthSeconds, 10) || 0;
+            const thumbnails = videoDetails.thumbnails || [];
+            const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
+                `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
-        // Parse view count
-        const viewCount = parseInt(videoDetails.viewCount, 10) || 0;
+            const durationSeconds = parseInt(videoDetails.lengthSeconds, 10) || 0;
+            const viewCount = parseInt(videoDetails.viewCount, 10) || 0;
 
-        return NextResponse.json({
-            videoId: videoDetails.videoId,
-            title: videoDetails.title,
-            description: videoDetails.description || '',
-            thumbnail,
-            channelId: videoDetails.channelId,
-            channelName: videoDetails.author?.name || videoDetails.ownerChannelName || 'Unknown',
-            channelAvatar: videoDetails.author?.thumbnails?.[0]?.url || null,
-            duration: durationSeconds,
-            viewCount,
-            publishedAt: videoDetails.publishDate || null,
-            keywords: videoDetails.keywords || [],
-            category: videoDetails.category || null,
-            isLive: videoDetails.isLiveContent || false,
-        });
+            return NextResponse.json({
+                videoId: videoDetails.videoId,
+                title: videoDetails.title,
+                description: videoDetails.description || '',
+                thumbnail,
+                channelId: videoDetails.channelId,
+                channelName: videoDetails.author?.name || videoDetails.ownerChannelName || 'Unknown',
+                channelAvatar: videoDetails.author?.thumbnails?.[0]?.url || null,
+                duration: durationSeconds,
+                viewCount,
+                publishedAt: videoDetails.publishDate || null,
+                keywords: videoDetails.keywords || [],
+                category: videoDetails.category || null,
+                isLive: videoDetails.isLiveContent || false,
+            });
 
-    } catch (error: any) {
-        console.error('Info API Error:', error);
-
-        if (error.message?.includes('Video unavailable')) {
-            return NextResponse.json({ error: 'Video not available' }, { status: 404 });
+        } catch (error: any) {
+            console.error('Info API attempt failed:', error.message);
+            lastError = error;
         }
-        if (error.message?.includes('Sign in')) {
-            return NextResponse.json({ error: 'Age-restricted or private video' }, { status: 403 });
-        }
-
-        return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    if (lastError?.message?.includes('Video unavailable')) {
+        return NextResponse.json({ error: 'Video not available' }, { status: 404 });
+    }
+    if (lastError?.message?.includes('Sign in')) {
+        return NextResponse.json({ error: 'Age-restricted or private video' }, { status: 403 });
+    }
+
+    return NextResponse.json({ error: lastError?.message || 'Failed to fetch info' }, { status: 500 });
 }
