@@ -28,7 +28,6 @@ function loadCookies(): ytdl.Cookie[] | undefined {
                     });
                 }
             }
-
             if (cookies.length > 0) {
                 console.log(`Loaded ${cookies.length} cookies`);
                 return cookies;
@@ -58,12 +57,42 @@ export async function GET(req: NextRequest) {
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Try with agent first, then without
-    const attempts = agent ? [{ agent }, {}] : [{}];
+    // List of clients to try (Round-robin strategy)
+    // WEB is default (good for quality but blocked easily)
+    // IOS/ANDROID are mobile clients (often bypass restrictions but might have lower quality formats)
+    const clientTypes = ['WEB', 'IOS', 'ANDROID'];
+
+    // Create attempt configurations
+    // 1. Try with agent (cookies) + WEB
+    // 2. Try with agent (cookies) + IOS
+    // 3. Try with agent (cookies) + ANDROID
+    // 4. Try without agent + WEB
+    // 5. Try without agent + IOS
+
+    let attempts: any[] = [];
+
+    if (agent) {
+        attempts.push({ agent, client: 'WEB' });
+        attempts.push({ agent, client: 'IOS' });
+        attempts.push({ agent, client: 'ANDROID' });
+    }
+
+    attempts.push({ client: 'WEB' });
+    attempts.push({ client: 'IOS' });
+    attempts.push({ client: 'ANDROID' });
 
     for (const options of attempts) {
         try {
-            const info = await ytdl.getInfo(videoUrl, options);
+            // Add request options headers for better mimicry
+            const requestOptions = {
+                headers: {
+                    'User-Agent': options.client === 'IOS'
+                        ? 'com.google.ios.youtube/19.10.5 (iPhone16,2; U; CPU iOS 17_4_1 like Mac OS X)'
+                        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+            };
+
+            const info = await ytdl.getInfo(videoUrl, { ...options, requestOptions });
 
             let format;
             if (type === 'audio') {
@@ -96,6 +125,8 @@ export async function GET(req: NextRequest) {
                 continue; // Try next attempt
             }
 
+            console.log(`[StreamAPI] Success with client: ${options.client}, hasAgent: ${!!options.agent}`);
+
             const headers = new Headers();
             headers.set('Content-Type', type === 'audio' ? 'audio/webm' : 'video/mp4');
             headers.set('Accept-Ranges', 'bytes');
@@ -105,6 +136,7 @@ export async function GET(req: NextRequest) {
                 headers.set('Content-Length', format.contentLength);
             }
 
+            // Important: Use the same options for download
             const stream = ytdl.downloadFromInfo(info, { format, ...options });
 
             const readable = new ReadableStream({
@@ -131,11 +163,11 @@ export async function GET(req: NextRequest) {
             });
 
         } catch (error: any) {
-            console.error('Attempt failed:', error.message);
+            console.error(`Attempt failed (${options.client}):`, error.message);
             // Continue to next attempt
         }
     }
 
     // All attempts failed
-    return new NextResponse('Video not available. Try a different video.', { status: 503 });
+    return new NextResponse('Video not available. Try a different video or update cookies.', { status: 503 });
 }
