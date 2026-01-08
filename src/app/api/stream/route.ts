@@ -1,18 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
+import path from 'path';
+import fs from 'fs';
 
 export const dynamic = 'force-dynamic';
+
+// Load cookies from file
+function loadCookies(): ytdl.Cookie[] | undefined {
+    try {
+        const cookiePath = path.join(process.cwd(), 'cookies.txt');
+        if (fs.existsSync(cookiePath)) {
+            const content = fs.readFileSync(cookiePath, 'utf-8');
+            const cookies: ytdl.Cookie[] = [];
+
+            for (const line of content.split('\n')) {
+                if (line.startsWith('#') || !line.trim()) continue;
+                const parts = line.split('\t');
+                if (parts.length >= 7) {
+                    cookies.push({
+                        domain: parts[0],
+                        name: parts[5],
+                        value: parts[6],
+                        path: parts[2],
+                        secure: parts[3] === 'TRUE',
+                        httpOnly: false,
+                        expirationDate: parseInt(parts[4]) || undefined,
+                    });
+                }
+            }
+
+            if (cookies.length > 0) {
+                console.log(`Loaded ${cookies.length} cookies`);
+                return cookies;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading cookies:', error);
+    }
+    return undefined;
+}
+
+const cookies = loadCookies();
+
+// Create agent with cookies
+const agent = cookies ? ytdl.createAgent(cookies) : undefined;
 
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const videoId = searchParams.get('videoId');
-    const type = searchParams.get('type') || 'video'; // 'video' hoặc 'audio'
+    const type = searchParams.get('type') || 'video';
 
     if (!videoId) {
         return new NextResponse('Missing videoId parameter', { status: 400 });
     }
 
-    // Validate videoId format
     if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
         return new NextResponse('Invalid videoId format', { status: 400 });
     }
@@ -20,26 +61,21 @@ export async function GET(req: NextRequest) {
     try {
         const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-        // Get video info
-        const info = await ytdl.getInfo(videoUrl);
+        // Get video info with cookies
+        const info = await ytdl.getInfo(videoUrl, { agent });
 
-        // Choose format based on type
         let format;
         if (type === 'audio') {
-            // Audio only - saves bandwidth significantly (~128kbps vs several Mbps)
             format = ytdl.chooseFormat(info.formats, {
                 quality: 'highestaudio',
                 filter: 'audioonly'
             });
         } else {
-            // Video + Audio combined - quality 18 is 360p MP4 (smooth, server-friendly)
-            // Try to get format with both video and audio
             format = ytdl.chooseFormat(info.formats, {
                 quality: '18',
                 filter: 'audioandvideo'
             });
 
-            // Fallback to best available if 360p not available
             if (!format) {
                 format = ytdl.chooseFormat(info.formats, {
                     quality: 'lowest',
@@ -52,7 +88,6 @@ export async function GET(req: NextRequest) {
             return new NextResponse('No suitable format found', { status: 404 });
         }
 
-        // Set response headers
         const headers = new Headers();
         headers.set('Content-Type', type === 'audio' ? 'audio/webm' : 'video/mp4');
         headers.set('Accept-Ranges', 'bytes');
@@ -61,10 +96,9 @@ export async function GET(req: NextRequest) {
             headers.set('Content-Length', format.contentLength);
         }
 
-        // Create readable stream from ytdl
-        const stream = ytdl.downloadFromInfo(info, { format });
+        // Download with cookies
+        const stream = ytdl.downloadFromInfo(info, { format, agent });
 
-        // Convert Node.js stream to Web ReadableStream
         const readable = new ReadableStream({
             start(controller) {
                 stream.on('data', (chunk: Buffer) => {
@@ -91,7 +125,6 @@ export async function GET(req: NextRequest) {
     } catch (error: any) {
         console.error('Stream API Error:', error);
 
-        // Handle specific ytdl errors
         if (error.message?.includes('Video unavailable')) {
             return new NextResponse('Video not available', { status: 404 });
         }
