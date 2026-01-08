@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
 import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 
 interface VideoPlayerProps {
     videoId: string;
@@ -47,7 +47,9 @@ export function VideoPlayer({
     const audioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const hasLoggedHistory = useRef(false);
+    const hasLoadedProgress = useRef(false);
     const controlsTimeout = useRef<NodeJS.Timeout>();
+    const progressSaveTimeout = useRef<NodeJS.Timeout>();
 
     const streamUrl = `/api/stream?videoId=${videoId}&type=${isAudioMode ? 'audio' : 'video'}`;
     const mediaRef = isAudioMode ? audioRef : videoRef;
@@ -77,6 +79,65 @@ export function VideoPlayer({
 
         return () => clearTimeout(timer);
     }, [videoId, isAudioMode, title, thumbnail, channelName]);
+
+    // Load saved progress on mount
+    useEffect(() => {
+        const loadProgress = async () => {
+            if (auth.currentUser && !hasLoadedProgress.current) {
+                try {
+                    const progressRef = doc(db, "users", auth.currentUser.uid, "progress", videoId);
+                    const progressDoc = await getDoc(progressRef);
+                    if (progressDoc.exists()) {
+                        const savedTime = progressDoc.data().currentTime;
+                        const savedDuration = progressDoc.data().duration;
+                        // Only resume if less than 95% watched
+                        if (savedTime && savedDuration && (savedTime / savedDuration) < 0.95) {
+                            const media = mediaRef.current;
+                            if (media) {
+                                media.currentTime = savedTime;
+                                console.log(`⏩ Tiếp tục từ ${formatDuration(savedTime)}`);
+                            }
+                        }
+                        hasLoadedProgress.current = true;
+                    }
+                } catch (error) {
+                    console.error("Lỗi load progress:", error);
+                }
+            }
+        };
+        loadProgress();
+    }, [videoId]);
+
+    // Save progress periodically (every 10 seconds)
+    useEffect(() => {
+        const saveProgress = async () => {
+            if (auth.currentUser && currentTime > 5 && duration > 0) {
+                try {
+                    const progressRef = doc(db, "users", auth.currentUser.uid, "progress", videoId);
+                    await setDoc(progressRef, {
+                        videoId,
+                        currentTime,
+                        duration,
+                        percentage: (currentTime / duration) * 100,
+                        lastUpdated: serverTimestamp()
+                    }, { merge: true });
+                } catch (error) {
+                    // Silent fail
+                }
+            }
+        };
+
+        if (progressSaveTimeout.current) {
+            clearTimeout(progressSaveTimeout.current);
+        }
+        progressSaveTimeout.current = setTimeout(saveProgress, 10000);
+
+        return () => {
+            if (progressSaveTimeout.current) {
+                clearTimeout(progressSaveTimeout.current);
+            }
+        };
+    }, [currentTime, duration, videoId]);
 
     // Handle play/pause
     const togglePlay = () => {
