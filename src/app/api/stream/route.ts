@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,19 +22,19 @@ export async function GET(req: NextRequest) {
     }
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const cookiesPath = path.join(process.cwd(), 'cookies.txt');
 
     try {
-        // Use yt-dlp through proxychains to get stream URL
-        // -f 18: 360p mp4 (video+audio)
-        // -f 22: 720p mp4 (video+audio) 
-        // -f bestaudio: best audio only
-        const format = type === 'audio' ? 'bestaudio' : '18/22/best[ext=mp4]';
+        // Use yt-dlp through proxychains with cookies
+        // -f b: best pre-merged format (avoids warning)
+        // --cookies: use cookies for authentication
+        const format = type === 'audio' ? 'bestaudio' : 'b';
 
-        const command = `proxychains4 -q yt-dlp -f "${format}" -g "${videoUrl}" 2>/dev/null`;
+        const command = `proxychains4 -q yt-dlp --cookies "${cookiesPath}" -f "${format}" -g "${videoUrl}"`;
 
-        console.log(`[StreamAPI] Running: yt-dlp for ${videoId}`);
+        console.log(`[StreamAPI] Running yt-dlp for ${videoId}`);
 
-        const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
+        const { stdout, stderr } = await execAsync(command, { timeout: 60000 });
 
         const streamUrl = stdout.trim().split('\n')[0];
 
@@ -44,7 +45,14 @@ export async function GET(req: NextRequest) {
 
         console.log(`[StreamAPI] Got stream URL for ${videoId}`);
 
-        // Fetch the actual stream and proxy it
+        // Check if it's an HLS stream (m3u8) or direct URL
+        if (streamUrl.includes('.m3u8') || streamUrl.includes('manifest')) {
+            // For HLS, redirect to the stream URL directly
+            // Browser's video player can handle HLS natively or with hls.js
+            return NextResponse.redirect(streamUrl);
+        }
+
+        // For direct URLs, proxy the stream
         const streamResponse = await fetch(streamUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
