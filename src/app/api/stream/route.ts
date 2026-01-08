@@ -83,7 +83,7 @@ const cookies = loadCookies();
 const tokens = loadTokens();
 
 // Create agent with cookies and tokens if available
-const agentOptions: ytdl.AgentOptions = {
+const agentOptions: any = {
     keepAlive: true,
 };
 
