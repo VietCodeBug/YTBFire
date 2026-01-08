@@ -13,10 +13,12 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.7.0",
+    "https-proxy-agent": "^7.0.6",
     "lucide-react": "^0.468.0",
     "next": "14.2.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "socks-proxy-agent": "^8.0.5",
     "tailwind-merge": "^2.6.0",
     "ytsr": "^3.8.4"
   },
