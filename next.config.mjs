@@ -30,6 +30,20 @@ const nextConfig = {
         }
         return config;
     },
+    // Add CSP headers to allow unsafe-eval for corporate proxies
+    async headers() {
+        return [
+            {
+                source: '/:path*',
+                headers: [
+                    {
+                        key: 'Content-Security-Policy',
+                        value: "default-src 'self' 'unsafe-eval' 'unsafe-inline' data: blob: https:; img-src 'self' data: https: blob:; media-src 'self' https: data: blob:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; font-src 'self' data: https:;",
+                    },
+                ],
+            },
+        ];
+    },
 };
 
 export default nextConfig;
