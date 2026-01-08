@@ -9,16 +9,23 @@ import {
     ThumbsUp,
     ListVideo,
     Music2,
-    Settings,
     History,
-    Flame
+    Flame,
+    Gamepad2,
+    Newspaper,
+    Tv,
+    Brain
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
     { icon: Home, label: "Trang chủ", href: "/" },
-    { icon: Flame, label: "Trending", href: "/trending" },
+    { icon: Flame, label: "Thịnh hành", href: "/trending" },
     { icon: Music2, label: "Âm nhạc", href: "/music" },
+    { icon: Gamepad2, label: "Trò chơi", href: "/gaming" },
+    { icon: Newspaper, label: "Tin tức", href: "/news" },
+    { icon: Tv, label: "Giải trí", href: "/entertainment" },
+    { icon: Brain, label: "Focus Mode", href: "/focus" },
 ];
 
 const libraryItems = [
@@ -46,11 +53,11 @@ export function Sidebar() {
                                 className={cn(
                                     "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300",
                                     isActive
-                                        ? "bg-primary/20 text-white border border-primary/30"
+                                        ? "bg-orange-500/20 text-white border border-orange-500/30"
                                         : "text-muted-foreground hover:bg-white/5 hover:text-white"
                                 )}
                             >
-                                <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
+                                <Icon className={cn("w-5 h-5", isActive && "text-orange-500")} />
                                 <span className="text-sm font-medium">{item.label}</span>
                             </Link>
                         );
@@ -77,11 +84,11 @@ export function Sidebar() {
                                     className={cn(
                                         "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300",
                                         isActive
-                                            ? "bg-primary/20 text-white border border-primary/30"
+                                            ? "bg-orange-500/20 text-white border border-orange-500/30"
                                             : "text-muted-foreground hover:bg-white/5 hover:text-white"
                                     )}
                                 >
-                                    <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
+                                    <Icon className={cn("w-5 h-5", isActive && "text-orange-500")} />
                                     <span className="text-sm font-medium">{item.label}</span>
                                 </Link>
                             );

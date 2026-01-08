@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { VideoPlayer } from "@/components/VideoPlayer";
-import { VideoCard, VideoCardSkeleton } from "@/components/VideoCard";
+import { RelatedVideoCard, RelatedVideoSkeleton } from "@/components/RelatedVideoCard";
 import { formatViewCount, formatTimeAgo } from "@/lib/utils";
-import { User, ThumbsUp, Share2, Clock, Loader2 } from "lucide-react";
+import { User, ThumbsUp, Share2, Clock, Loader2, PictureInPicture2 } from "lucide-react";
 
 interface VideoInfo {
     videoId: string;
@@ -148,7 +148,7 @@ export default function WatchPage() {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <button className="flex items-center gap-2 px-4 py-2 rounded-full glass hover:bg-white/10 transition-colors">
                                 <ThumbsUp className="w-4 h-4" />
                                 <span className="text-sm">Thích</span>
@@ -160,6 +160,19 @@ export default function WatchPage() {
                             <button className="flex items-center gap-2 px-4 py-2 rounded-full glass hover:bg-white/10 transition-colors">
                                 <Clock className="w-4 h-4" />
                                 <span className="text-sm">Lưu</span>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const video = document.querySelector('video');
+                                    if (video && document.pictureInPictureEnabled) {
+                                        video.requestPictureInPicture();
+                                    }
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 transition-colors"
+                                title="Picture-in-Picture"
+                            >
+                                <PictureInPicture2 className="w-4 h-4" />
+                                <span className="text-sm">PiP</span>
                             </button>
                         </div>
                     </div>
@@ -199,15 +212,15 @@ export default function WatchPage() {
             </div>
 
             {/* Sidebar - Related Videos */}
-            <aside className="lg:w-96 space-y-3">
+            <aside className="lg:w-96 space-y-2">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
+                    <Clock className="w-4 h-4 text-orange-400" />
                     Video liên quan
                 </h3>
 
                 {relatedVideos.length > 0 ? (
                     relatedVideos.map((video) => (
-                        <VideoCard
+                        <RelatedVideoCard
                             key={video.videoId}
                             videoId={video.videoId}
                             title={video.title}
@@ -215,12 +228,11 @@ export default function WatchPage() {
                             channelName={video.channelName}
                             duration={video.duration}
                             viewCount={video.viewCount}
-                            className="flex flex-row lg:flex-col"
                         />
                     ))
                 ) : (
                     [...Array(5)].map((_, i) => (
-                        <VideoCardSkeleton key={i} />
+                        <RelatedVideoSkeleton key={i} />
                     ))
                 )}
             </aside>

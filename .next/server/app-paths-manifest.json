@@ -1,8 +1,9 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/search/route": "app/api/search/route.js",
+  "/music/page": "app/music/page.js",
+  "/history/page": "app/history/page.js",
+  "/news/page": "app/news/page.js",
   "/watch/[videoId]/page": "app/watch/[videoId]/page.js",
-  "/api/info/route": "app/api/info/route.js",
-  "/api/stream/route": "app/api/stream/route.js",
-  "/page": "app/page.js"
+  "/focus/page": "app/focus/page.js",
+  "/entertainment/page": "app/entertainment/page.js",
+  "/api/search/route": "app/api/search/route.js"
 }
