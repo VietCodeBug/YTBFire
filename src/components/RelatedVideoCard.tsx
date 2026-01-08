@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { formatDuration, formatViewCount } from "@/lib/utils";
+import { getProxiedImageUrl } from "@/lib/imageProxy";
 
 interface RelatedVideoCardProps {
     videoId: string;
@@ -20,6 +21,8 @@ export function RelatedVideoCard({
     duration,
     viewCount,
 }: RelatedVideoCardProps) {
+    const proxiedThumbnail = getProxiedImageUrl(thumbnail);
+
     return (
         <Link
             href={`/watch/${videoId}`}
@@ -28,9 +31,10 @@ export function RelatedVideoCard({
             {/* Thumbnail */}
             <div className="relative flex-shrink-0 w-40 aspect-video rounded-lg overflow-hidden">
                 <img
-                    src={thumbnail || `/api/placeholder/160/90`}
+                    src={proxiedThumbnail}
                     alt={title}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    loading="lazy"
                 />
                 {/* Duration Badge */}
                 {duration && (

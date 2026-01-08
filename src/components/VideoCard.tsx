@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { cn, formatDuration, formatViewCount, formatTimeAgo } from "@/lib/utils";
+import { getProxiedImageUrl } from "@/lib/imageProxy";
 
 interface VideoCardProps {
     videoId: string;
@@ -27,6 +27,10 @@ export function VideoCard({
     publishedAt,
     className,
 }: VideoCardProps) {
+    // Proxy images to bypass firewall
+    const proxiedThumbnail = getProxiedImageUrl(thumbnail);
+    const proxiedAvatar = getProxiedImageUrl(channelAvatar);
+
     return (
         <Link
             href={`/watch/${videoId}`}
@@ -37,12 +41,11 @@ export function VideoCard({
         >
             {/* Thumbnail */}
             <div className="relative aspect-video overflow-hidden">
-                <Image
-                    src={thumbnail || `/api/placeholder/320/180`}
+                <img
+                    src={proxiedThumbnail}
                     alt={title}
-                    fill
-                    className="object-cover transition-transform duration-500 group-hover:scale-105"
-                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    loading="lazy"
                 />
 
                 {/* Duration Badge */}
@@ -57,7 +60,7 @@ export function VideoCard({
 
                 {/* Play Icon on Hover */}
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <div className="w-16 h-16 rounded-full bg-primary/90 flex items-center justify-center shadow-lg shadow-primary/30">
+                    <div className="w-16 h-16 rounded-full bg-orange-500/90 flex items-center justify-center shadow-lg shadow-orange-500/30">
                         <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M8 5v14l11-7z" />
                         </svg>
@@ -71,15 +74,14 @@ export function VideoCard({
                     {/* Channel Avatar */}
                     <div className="flex-shrink-0">
                         {channelAvatar ? (
-                            <Image
-                                src={channelAvatar}
+                            <img
+                                src={proxiedAvatar}
                                 alt={channelName}
-                                width={36}
-                                height={36}
-                                className="rounded-full"
+                                className="w-9 h-9 rounded-full object-cover"
+                                loading="lazy"
                             />
                         ) : (
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-sm font-bold text-white">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-sm font-bold text-white">
                                 {channelName.charAt(0).toUpperCase()}
                             </div>
                         )}
@@ -87,7 +89,7 @@ export function VideoCard({
 
                     {/* Text Info */}
                     <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                        <h3 className="font-medium text-sm leading-snug line-clamp-2 group-hover:text-orange-400 transition-colors">
                             {title}
                         </h3>
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
