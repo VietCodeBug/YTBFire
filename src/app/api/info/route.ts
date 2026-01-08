@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
             videoId: videoDetails.videoId,
             title: videoDetails.title,
-            description: videoDetails.shortDescription || videoDetails.description || '',
+            description: videoDetails.description || '',
             thumbnail,
             channelId: videoDetails.channelId,
             channelName: videoDetails.author?.name || videoDetails.ownerChannelName || 'Unknown',
