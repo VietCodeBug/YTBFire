@@ -11,9 +11,17 @@ interface Tokens {
     poToken: string;
 }
 
+// List of public Invidious/Piped instances to try
+const PROXY_INSTANCES = [
+    'https://inv.nadeko.net',
+    'https://invidious.nerdvpn.de',
+    'https://invidious.jing.rocks',
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.syncpundit.io',
+];
+
 // Load cookies from file
 function loadCookies(): ytdl.Cookie[] | undefined {
-    // Try valid cookies.json first
     try {
         const jsonPath = path.join(process.cwd(), 'cookies.json');
         if (fs.existsSync(jsonPath)) {
@@ -28,7 +36,6 @@ function loadCookies(): ytdl.Cookie[] | undefined {
         console.error('Error loading cookies.json:', error);
     }
 
-    // Fallback to cookies.txt (Netscape format)
     try {
         const cookiePath = path.join(process.cwd(), 'cookies.txt');
         if (fs.existsSync(cookiePath)) {
@@ -50,10 +57,7 @@ function loadCookies(): ytdl.Cookie[] | undefined {
                     });
                 }
             }
-            if (cookies.length > 0) {
-                console.log(`Loaded ${cookies.length} cookies from TXT`);
-                return cookies;
-            }
+            if (cookies.length > 0) return cookies;
         }
     } catch (error) {
         console.error('Error loading cookies.txt:', error);
@@ -61,7 +65,6 @@ function loadCookies(): ytdl.Cookie[] | undefined {
     return undefined;
 }
 
-// Load tokens from file
 function loadTokens(): Tokens | undefined {
     try {
         const tokenPath = path.join(process.cwd(), 'tokens.json');
@@ -82,7 +85,6 @@ function loadTokens(): Tokens | undefined {
 const cookies = loadCookies();
 const tokens = loadTokens();
 
-// Create agent with cookies and tokens if available
 const agentOptions: any = {
     keepAlive: true,
 };
@@ -93,6 +95,98 @@ if (tokens) {
 }
 
 const agent = cookies ? ytdl.createAgent(cookies, agentOptions) : undefined;
+
+// Strategy 2: Try Invidious/Piped instances
+async function tryInvidiousProxy(videoId: string, type: string): Promise<Response | null> {
+    for (const instance of PROXY_INSTANCES) {
+        try {
+            console.log(`[StreamAPI] Trying proxy: ${instance}`);
+
+            // Detect if Piped or Invidious
+            const isPiped = instance.includes('piped');
+
+            let apiUrl: string;
+            if (isPiped) {
+                apiUrl = `${instance}/streams/${videoId}`;
+            } else {
+                // Invidious API
+                apiUrl = `${instance}/api/v1/videos/${videoId}`;
+            }
+
+            const response = await fetch(apiUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
+            if (!response.ok) {
+                console.log(`[StreamAPI] Proxy ${instance} returned ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+
+            let streamUrl: string | null = null;
+
+            if (isPiped) {
+                // Piped format
+                if (type === 'audio') {
+                    streamUrl = data.audioStreams?.[0]?.url;
+                } else {
+                    // Find best video stream with audio
+                    const videoStream = data.videoStreams?.find((s: any) =>
+                        s.videoOnly === false && s.quality
+                    ) || data.videoStreams?.[0];
+                    streamUrl = videoStream?.url;
+                }
+            } else {
+                // Invidious format
+                if (type === 'audio') {
+                    streamUrl = data.adaptiveFormats?.find((f: any) =>
+                        f.type?.includes('audio')
+                    )?.url;
+                } else {
+                    // Find format with both video and audio
+                    streamUrl = data.formatStreams?.find((f: any) =>
+                        f.type?.includes('video')
+                    )?.url;
+                }
+            }
+
+            if (streamUrl) {
+                console.log(`[StreamAPI] Got stream URL from ${instance}`);
+
+                // Proxy the stream through our server
+                const streamResponse = await fetch(streamUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': 'https://www.youtube.com/',
+                    }
+                });
+
+                if (streamResponse.ok && streamResponse.body) {
+                    const headers = new Headers();
+                    headers.set('Content-Type', type === 'audio' ? 'audio/webm' : 'video/mp4');
+                    headers.set('Accept-Ranges', 'bytes');
+                    headers.set('Cache-Control', 'no-cache');
+
+                    const contentLength = streamResponse.headers.get('content-length');
+                    if (contentLength) {
+                        headers.set('Content-Length', contentLength);
+                    }
+
+                    return new Response(streamResponse.body, {
+                        headers,
+                        status: 200
+                    });
+                }
+            }
+        } catch (error: any) {
+            console.error(`[StreamAPI] Proxy ${instance} failed:`, error.message);
+        }
+    }
+    return null;
+}
 
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
@@ -109,29 +203,24 @@ export async function GET(req: NextRequest) {
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // List of clients to try (Round-robin strategy)
+    // Strategy 1: Try ytdl-core with all client types
     const clientTypes = ['WEB', 'IOS', 'ANDROID'];
-
     let attempts: any[] = [];
 
-    // Prioritize agent attempts (with tokens/cookies)
     if (agent) {
         attempts.push({ agent, client: 'WEB' });
         attempts.push({ agent, client: 'IOS' });
         attempts.push({ agent, client: 'ANDROID' });
     }
 
-    // Fallback attempts without agent (less likely to work for blocked IPs but worth a try)
     attempts.push({ client: 'WEB' });
     attempts.push({ client: 'IOS' });
     attempts.push({ client: 'ANDROID' });
 
-    // Strategy 1: Try ytdl-core (Authenticated + Headers + PoToken)
     for (const options of attempts) {
         try {
-            console.log(`[StreamAPI] Attempting with client: ${options.client}, hasAgent: ${!!options.agent}`);
+            console.log(`[StreamAPI] Attempting ytdl with client: ${options.client}`);
 
-            // Only add custom User-Agent for non-WEB clients or when no agent is used
             const requestOptions: any = {};
             if (options.client !== 'WEB') {
                 requestOptions.headers = {
@@ -142,9 +231,7 @@ export async function GET(req: NextRequest) {
             }
 
             const info = await ytdl.getInfo(videoUrl, { ...options, requestOptions });
-
-            // Log success to help debug
-            console.log(`[StreamAPI] GetInfo success with ${options.client}`);
+            console.log(`[StreamAPI] ytdl.getInfo success with ${options.client}`);
 
             let format;
             if (type === 'audio') {
@@ -173,11 +260,11 @@ export async function GET(req: NextRequest) {
             }
 
             if (!format) {
-                console.log(`[StreamAPI] No suitable format found for ${options.client}`);
+                console.log(`[StreamAPI] No format found for ${options.client}`);
                 continue;
             }
 
-            console.log(`[StreamAPI] Found format: ${format.qualityLabel || 'audio'} (${format.mimeType})`);
+            console.log(`[StreamAPI] Streaming format: ${format.qualityLabel || 'audio'}`);
 
             const headers = new Headers();
             headers.set('Content-Type', type === 'audio' ? 'audio/webm' : 'video/mp4');
@@ -199,7 +286,7 @@ export async function GET(req: NextRequest) {
                         controller.close();
                     });
                     stream.on('error', (err: Error) => {
-                        console.error('Stream flow error:', err.message);
+                        console.error('Stream error:', err.message);
                         controller.error(err);
                     });
                 },
@@ -214,12 +301,17 @@ export async function GET(req: NextRequest) {
             });
 
         } catch (error: any) {
-            console.error(`[StreamAPI] Attempt failed (${options.client}):`, error.message);
-            if (error.message.includes('Sign in')) {
-                console.warn(`[StreamAPI] Auth Check Failed for ${options.client}`);
-            }
+            console.error(`[StreamAPI] ytdl failed (${options.client}):`, error.message);
         }
     }
 
-    return new NextResponse('Video not available. Try a different video or update cookies/tokens.', { status: 503 });
+    // Strategy 2: Fallback to Invidious/Piped proxy
+    console.log('[StreamAPI] All ytdl attempts failed. Trying Invidious/Piped proxies...');
+    const proxyResponse = await tryInvidiousProxy(videoId, type);
+    if (proxyResponse) {
+        return proxyResponse;
+    }
+
+    // All strategies failed
+    return new NextResponse('Video not available. All streaming methods failed.', { status: 503 });
 }
