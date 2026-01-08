@@ -20,12 +20,12 @@ export default function RootLayout({
     return (
         <html lang="vi" className="dark">
             <body className={inter.className}>
-                <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950/20 to-slate-950">
+                <div className="min-h-screen bg-gradient-to-br from-neutral-950 via-orange-950/10 to-neutral-950">
                     {/* Background Gradient Orbs */}
                     <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-600/20 rounded-full blur-3xl" />
-                        <div className="absolute top-1/2 -left-40 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl" />
-                        <div className="absolute bottom-20 right-1/4 w-64 h-64 bg-pink-600/10 rounded-full blur-3xl" />
+                        <div className="absolute -top-40 -right-40 w-80 h-80 bg-orange-500/15 rounded-full blur-3xl" />
+                        <div className="absolute top-1/2 -left-40 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl" />
+                        <div className="absolute bottom-20 right-1/4 w-64 h-64 bg-orange-600/10 rounded-full blur-3xl" />
                     </div>
 
                     {/* Main Layout */}
