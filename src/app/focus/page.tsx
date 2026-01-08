@@ -31,6 +31,8 @@ export default function FocusPage() {
     const [isLoadingMusic, setIsLoadingMusic] = useState(true);
     const [isPlaying, setIsPlaying] = useState(false);
     const [volume, setVolume] = useState(0.5);
+    const [currentAudioTime, setCurrentAudioTime] = useState(0);
+    const [audioDuration, setAudioDuration] = useState(0);
 
     const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -111,6 +113,45 @@ export default function FocusPage() {
         }, 100);
     };
 
+    // Effect to handle volume changes
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.volume = isMuted ? 0 : volume;
+        }
+    }, [volume, isMuted]);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!audioRef.current) return;
+
+            switch (e.key) {
+                case "ArrowLeft":
+                    audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 5);
+                    break;
+                case "ArrowRight":
+                    audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 5);
+                    break;
+                case " ":
+                    e.preventDefault();
+                    togglePlayMusic();
+                    break;
+                case "ArrowUp":
+                    e.preventDefault();
+                    setVolume(prev => Math.min(1, prev + 0.1));
+                    setIsMuted(false);
+                    break;
+                case "ArrowDown":
+                    e.preventDefault();
+                    setVolume(prev => Math.max(0, prev - 0.1));
+                    break;
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isPlaying, volume]);
+
     // Format time
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -140,7 +181,8 @@ export default function FocusPage() {
                     onEnded={handleAudioEnded}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
-                    volume={isMuted ? 0 : volume}
+                    onTimeUpdate={(e) => setCurrentAudioTime(e.currentTarget.currentTime)}
+                    onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration)}
                 />
             )}
 
@@ -184,8 +226,8 @@ export default function FocusPage() {
                     <button
                         onClick={() => setIsRunning(!isRunning)}
                         className={`p-4 rounded-full transition-all ${isRunning
-                                ? "bg-red-500/20 hover:bg-red-500/30 text-red-400"
-                                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30"
+                            ? "bg-red-500/20 hover:bg-red-500/30 text-red-400"
+                            : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30"
                             }`}
                     >
                         {isRunning ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
@@ -223,49 +265,79 @@ export default function FocusPage() {
                         <Music2 className="w-5 h-5 text-orange-400" />
                         <span className="font-medium">Đang phát</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setIsMuted(!isMuted)}
-                            className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                        >
-                            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                        </button>
-                        <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.1}
-                            value={volume}
-                            onChange={(e) => setVolume(parseFloat(e.target.value))}
-                            className="w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer"
-                        />
-                    </div>
                 </div>
 
                 {currentVideo ? (
-                    <div className="flex items-center gap-3">
-                        <img
-                            src={`/api/image?url=${encodeURIComponent(currentVideo.thumbnail)}`}
-                            alt={currentVideo.title}
-                            className="w-12 h-12 rounded-lg object-cover"
-                        />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium line-clamp-1">{currentVideo.title}</p>
-                            <p className="text-xs text-muted-foreground">Lofi Music</p>
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <img
+                                src={`/api/image?url=${encodeURIComponent(currentVideo.thumbnail)}`}
+                                alt={currentVideo.title}
+                                className="w-12 h-12 rounded-lg object-cover"
+                            />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium line-clamp-1">{currentVideo.title}</p>
+                                <p className="text-xs text-muted-foreground mr-2">
+                                    {formatTime(currentAudioTime)} / {formatTime(audioDuration)}
+                                </p>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={togglePlayMusic}
-                                className="p-2 rounded-full bg-orange-500 hover:bg-orange-600 transition-colors"
-                            >
-                                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                            </button>
-                            <button
-                                onClick={nextTrack}
-                                className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                            >
-                                <SkipForward className="w-4 h-4" />
-                            </button>
+
+                        {/* Seek Bar */}
+                        <div className="w-full">
+                            <input
+                                type="range"
+                                min={0}
+                                max={audioDuration || 100}
+                                value={currentAudioTime}
+                                onChange={(e) => {
+                                    const newTime = parseFloat(e.target.value);
+                                    if (audioRef.current) {
+                                        audioRef.current.currentTime = newTime;
+                                        setCurrentAudioTime(newTime);
+                                    }
+                                }}
+                                className="w-full h-1 bg-white/20 rounded-full appearance-none cursor-pointer"
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={togglePlayMusic}
+                                    className="p-2 rounded-full bg-orange-500 hover:bg-orange-600 transition-colors"
+                                >
+                                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                </button>
+                                <button
+                                    onClick={nextTrack}
+                                    className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                                >
+                                    <SkipForward className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setIsMuted(!isMuted)}
+                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                                >
+                                    {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                                </button>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={1}
+                                    step={0.1}
+                                    value={isMuted ? 0 : volume}
+                                    onChange={(e) => {
+                                        const newVol = parseFloat(e.target.value);
+                                        setVolume(newVol);
+                                        setIsMuted(newVol === 0);
+                                    }}
+                                    className="w-20 h-1 bg-white/20 rounded-full appearance-none cursor-pointer"
+                                />
+                            </div>
                         </div>
                     </div>
                 ) : (
