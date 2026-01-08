@@ -1,5 +1,7 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
+import ytsr from 'ytsr'; // Use ytsr as fallback
 import path from 'path';
 import fs from 'fs';
 
@@ -68,42 +70,56 @@ export async function GET(req: NextRequest) {
 
     let lastError;
 
+    // Strategy 1: Try ytdl-core (Authenticated + Headers)
     for (const options of attempts) {
         try {
             const info = await ytdl.getInfo(videoUrl, options);
             const videoDetails = info.videoDetails;
 
-            const thumbnails = videoDetails.thumbnails || [];
-            const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
-                `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+            console.log(`[InfoAPI] Successfully fetched info for ${videoId} using ytdl-core`);
 
-            const durationSeconds = parseInt(videoDetails.lengthSeconds, 10) || 0;
-            const viewCount = parseInt(videoDetails.viewCount, 10) || 0;
-
-            console.log(`[InfoAPI] Successfully fetched info for ${videoId}`);
-
-            return NextResponse.json({
-                videoId: videoDetails.videoId,
-                title: videoDetails.title,
-                description: videoDetails.description || '',
-                thumbnail,
-                channelId: videoDetails.channelId,
-                channelName: videoDetails.author?.name || videoDetails.ownerChannelName || 'Unknown',
-                channelAvatar: videoDetails.author?.thumbnails?.[0]?.url || null,
-                duration: durationSeconds,
-                viewCount,
-                publishedAt: videoDetails.publishDate || null,
-                keywords: videoDetails.keywords || [],
-                category: videoDetails.category || null,
-                isLive: videoDetails.isLiveContent || false,
-            });
+            return NextResponse.json(formatYtdlResponse(videoDetails));
 
         } catch (error: any) {
-            console.error(`[InfoAPI] Attempt failed:`, error.message);
+            console.error(`[InfoAPI] ytdl attempt failed:`, error.message);
             lastError = error;
         }
     }
 
+    // Strategy 2: Fallback to ytsr (Search scraping) if ytdl fails (often works for public videos when API is blocked)
+    console.log(`[InfoAPI] Falling back to ytsr scraping for ${videoId}`);
+    try {
+        // Search specifically for the video ID to simulate a direct lookup
+        const filters = await ytsr.getFilters(videoId);
+        const filter = filters.get('Type')?.get('Video');
+        const url = filter?.url || videoUrl; // Use specific filter url if available
+
+        const searchResults = await ytsr(url, { limit: 1 });
+        const item = searchResults.items.find((i): i is ytsr.Video => i.type === 'video' && i.id === videoId);
+
+        if (item) {
+            console.log(`[InfoAPI] Successfully fetched info for ${videoId} using ytsr fallback`);
+            return NextResponse.json({
+                videoId: item.id,
+                title: item.title,
+                description: item.description || '',
+                thumbnail: item.bestThumbnail?.url || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+                channelId: item.author?.channelID || 'Unknown',
+                channelName: item.author?.name || 'Unknown',
+                channelAvatar: item.author?.bestAvatar?.url || null,
+                duration: parseDuration(item.duration),
+                viewCount: item.views || 0,
+                publishedAt: item.uploadedAt || null,
+                keywords: [],
+                category: null,
+                isLive: item.isLive,
+            });
+        }
+    } catch (fallbackError) {
+        console.error(`[InfoAPI] Fallback scraping failed:`, fallbackError);
+    }
+
+    // Error handling
     if (lastError?.message?.includes('Video unavailable')) {
         return NextResponse.json({ error: 'Video not available' }, { status: 404 });
     }
@@ -112,4 +128,37 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ error: lastError?.message || 'Failed to fetch info' }, { status: 500 });
+}
+
+function formatYtdlResponse(videoDetails: any) {
+    const thumbnails = videoDetails.thumbnails || [];
+    const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
+        `https://i.ytimg.com/vi/${videoDetails.videoId}/hqdefault.jpg`;
+
+    const durationSeconds = parseInt(videoDetails.lengthSeconds, 10) || 0;
+    const viewCount = parseInt(videoDetails.viewCount, 10) || 0;
+
+    return {
+        videoId: videoDetails.videoId,
+        title: videoDetails.title,
+        description: videoDetails.description || '',
+        thumbnail,
+        channelId: videoDetails.channelId,
+        channelName: videoDetails.author?.name || videoDetails.ownerChannelName || 'Unknown',
+        channelAvatar: videoDetails.author?.thumbnails?.[0]?.url || null,
+        duration: durationSeconds,
+        viewCount,
+        publishedAt: videoDetails.publishDate || null,
+        keywords: videoDetails.keywords || [],
+        category: videoDetails.category || null,
+        isLive: videoDetails.isLiveContent || false,
+    };
+}
+
+function parseDuration(duration: string | null): number {
+    if (!duration) return 0;
+    const parts = duration.split(':').map(Number);
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return 0;
 }
